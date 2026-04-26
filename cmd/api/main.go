@@ -1,0 +1,37 @@
+package main
+
+import (
+	"log"
+
+	"github.com/luponetn/hng-stage-1/internals/config"
+	"github.com/luponetn/hng-stage-1/internals/db"
+	"github.com/luponetn/hng-stage-1/internals/handlers"
+)
+
+func main() {
+	cfg := config.LoadConfig()
+
+	router := CreateRouter()
+
+	//connect with db
+	pool, err := db.ConnectDB(cfg.DBURL)
+	if err != nil {
+		log.Fatalf("could not connect to database: %v", err)
+	}
+	defer pool.Close()
+
+	queries := db.New(pool)
+
+	h := handlers.NewHandler(queries)
+
+
+	router.HandleFunc("POST /api/profiles", h.CreateProfile)
+	router.HandleFunc("GET /api/profiles/{id}", h.GetProfileByID)
+	router.HandleFunc("GET /api/profiles", h.GetProfiles)
+	router.HandleFunc("GET /api/profiles/search", h.SearchProfiles)
+	router.HandleFunc("DELETE /api/profiles/{id}", h.DeleteProfileByID)
+
+	if err := StartServer(router, cfg.Port); err != nil {
+		log.Fatalf("could not start server: %v", err)
+	}
+}
