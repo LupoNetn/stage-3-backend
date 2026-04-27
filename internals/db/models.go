@@ -20,3 +20,16 @@ type Profile struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	CountryName        pgtype.Text        `json:"country_name"`
 }
+
+type User struct {
+	ID           pgtype.UUID        `json:"id"`
+	GithubID     string             `json:"github_id"`
+	Username     string             `json:"username"`
+	Email        string             `json:"email"`
+	AvatarUrl    pgtype.Text        `json:"avatar_url"`
+	Role         string             `json:"role"`
+	IsActive     bool               `json:"is_active"`
+	LastLoginAt  pgtype.Timestamptz `json:"last_login_at"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	RefreshToken pgtype.Text        `json:"refresh_token"`
+}

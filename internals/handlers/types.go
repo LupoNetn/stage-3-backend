@@ -19,3 +19,11 @@ type NationalizeResp struct {
 		Probability float64 `json:"probability"`
 	} `json:"country"`
 }
+
+
+//auth types
+type GithubCLIAuth struct {
+	Code string `json:"code"`
+	State string `json:"state"`
+	CodeVerifier string `json:"code_verifier"`
+}

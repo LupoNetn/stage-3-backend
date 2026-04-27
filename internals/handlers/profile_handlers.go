@@ -46,7 +46,7 @@ func (h *Handler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 
 	g.Go(func() error {
 		url := fmt.Sprintf("https://api.genderize.io?name=%s", name)
-		data, err := httprequest.MakeRequest(ctx, "GET", url)
+		data, err := httprequest.MakeRequest(ctx, "GET", url, nil)
 		if err != nil {
 			return err
 		}
@@ -55,7 +55,7 @@ func (h *Handler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 
 	g.Go(func() error {
 		url := fmt.Sprintf("https://api.agify.io?name=%s", name)
-		data, err := httprequest.MakeRequest(ctx, "GET", url)
+		data, err := httprequest.MakeRequest(ctx, "GET", url, nil)
 		if err != nil {
 			return err
 		}
@@ -64,7 +64,7 @@ func (h *Handler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 
 	g.Go(func() error {
 		url := fmt.Sprintf("https://api.nationalize.io?name=%s", name)
-		data, err := httprequest.MakeRequest(ctx, "GET", url)
+		data, err := httprequest.MakeRequest(ctx, "GET", url, nil)
 		if err != nil {
 			return err
 		}

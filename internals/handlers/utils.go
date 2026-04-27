@@ -85,6 +85,9 @@ func toFloat8(f float64) pgtype.Float8 {
 func toInt4(i int32) pgtype.Int4 {
 	return pgtype.Int4{Int32: i, Valid: true}
 }
+func toTimestamptz(t time.Time) pgtype.Timestamptz {
+	return pgtype.Timestamptz{Time: t, Valid: true}
+}
 
 func toInt32(s string) (int32, error) {
 	v, err := strconv.ParseInt(s, 10, 32)
