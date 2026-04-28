@@ -33,8 +33,13 @@ func main() {
 	// ==========================================
 	router.HandleFunc("POST /auth/github/cli", h.HandleGithubCLIAuth)
 	router.HandleFunc("GET /auth/github", h.HandleGithubAuth)
+	router.HandleFunc("GET /auth/github/url", h.HandleGithubAuthURL)
 	router.HandleFunc("POST /auth/github/callback", h.HandleGithubAuthCallback)
-	router.HandleFunc("GET /auth/me", h.HandleMe)
+	router.Handle("GET /auth/me", 
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(http.HandlerFunc(h.HandleMe)),
+		),
+	)
 	router.HandleFunc("POST /auth/refresh", h.HandleRefresh)
 	router.HandleFunc("POST /auth/logout", h.HandleLogout)
 
@@ -42,33 +47,51 @@ func main() {
 	
 	// Admin Only Routes
 	router.Handle("POST /api/profiles", 
-		middlewares.AuthMiddleware(
-			middlewares.AuthorizeAdmin(http.HandlerFunc(h.CreateProfile)),
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.AuthorizeAdmin(http.HandlerFunc(h.CreateProfile)),
+			),
 		),
 	)
 	
 	router.Handle("DELETE /api/profiles/{id}", 
-		middlewares.AuthMiddleware(
-			middlewares.AuthorizeAdmin(http.HandlerFunc(h.DeleteProfileByID)),
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.AuthorizeAdmin(http.HandlerFunc(h.DeleteProfileByID)),
+			),
 		),
 	)
 
 	// protected routes
 	router.Handle("GET /api/profiles/{id}", 
-		middlewares.AuthMiddleware(
-			middlewares.Authorize(http.HandlerFunc(h.GetProfileByID)),
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.Authorize(http.HandlerFunc(h.GetProfileByID)),
+			),
 		),
 	)
 	
 	router.Handle("GET /api/profiles", 
-		middlewares.AuthMiddleware(
-			middlewares.Authorize(http.HandlerFunc(h.GetProfiles)),
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.Authorize(http.HandlerFunc(h.GetProfiles)),
+			),
 		),
 	)
 	
 	router.Handle("GET /api/profiles/search", 
-		middlewares.AuthMiddleware(
-			middlewares.Authorize(http.HandlerFunc(h.SearchProfiles)),
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.Authorize(http.HandlerFunc(h.SearchProfiles)),
+			),
+		),
+	)
+
+	router.Handle("GET /api/profiles/export", 
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.Authorize(http.HandlerFunc(h.ExportProfiles)),
+			),
 		),
 	)
 
