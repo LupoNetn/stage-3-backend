@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -122,7 +123,7 @@ func (h *Handler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 		Age:                utils.ToInt4(ageResp.Age),
 		AgeGroup:           utils.ToText(ageGroup),
 		CountryID:          utils.ToText(bestCountry),
-		CountryName:        utils.ToText(""), // nationalize.io does not provide full country names
+		CountryName:        utils.ToText(utils.GetCountryName(bestCountry)),
 		CountryProbability: utils.ToFloat8(bestProb),
 	})
 
@@ -162,6 +163,15 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 	limit := params.Get("limit")
 	gender := params.Get("gender")
 	countryID := params.Get("country_id")
+	countryName := params.Get("country_name")
+	country := params.Get("country")
+	if country != "" {
+		if len(country) == 2 {
+			countryID = country
+		} else {
+			countryName = country
+		}
+	}
 	ageGroup := params.Get("age_group")
 	minAgeStr := params.Get("min_age")
 	maxAgeStr := params.Get("max_age")
@@ -259,6 +269,7 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 		Genders:        genders,
 		AgeGroup:       strings.ToLower(ageGroup),
 		CountryID:      strings.ToLower(countryID),
+		CountryName:    strings.ToLower(countryName),
 		MinAge:         minAge,
 		MaxAge:         maxAge,
 		MinGenderProb:  minGenderProb,
@@ -275,6 +286,7 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 		Genders:        genders,
 		AgeGroup:       strings.ToLower(ageGroup),
 		CountryID:      strings.ToLower(countryID),
+		CountryName:    strings.ToLower(countryName),
 		MinAge:         minAge,
 		MaxAge:         maxAge,
 		MinGenderProb:  minGenderProb,
@@ -307,15 +319,7 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]any{
-		"status": "success",
-		"page":   pageVal,
-		"limit":  limitVal,
-		"total":  total,
-		"data":   data,
-	})
+	utils.PaginatedResponse(w, http.StatusOK, pageVal, limitVal, int32(total), "/api/profiles", r.URL.Query(), data)
 }
 
 func (h *Handler) SearchProfiles(w http.ResponseWriter, r *http.Request) {
@@ -426,15 +430,7 @@ func (h *Handler) SearchProfiles(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]any{
-		"status": "success",
-		"page":   pageVal,
-		"limit":  limitVal,
-		"total":  total,
-		"data":   data,
-	})
+	utils.PaginatedResponse(w, http.StatusOK, pageVal, limitVal, int32(total), "/api/profiles/search", r.URL.Query(), data)
 }
 
 func (h *Handler) DeleteProfileByID(w http.ResponseWriter, r *http.Request) {
@@ -467,3 +463,175 @@ func (h *Handler) DeleteProfileByID(w http.ResponseWriter, r *http.Request) {
 	// 3. Return 204 No Content
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (h *Handler) ExportProfiles(w http.ResponseWriter, r *http.Request) {
+	params := r.URL.Query()
+
+	format := params.Get("format")
+	if format == "" || format != "csv" {
+		fmt.Println("Format is not CSV")
+		h.errorResponse(w,http.StatusBadRequest,"Please provide a CSV format for the export")
+		return
+	}
+	page := params.Get("page")
+	limit := params.Get("limit")
+	gender := params.Get("gender")
+	countryID := params.Get("country_id")
+	countryName := params.Get("country_name")
+	country := params.Get("country")
+	if country != "" {
+		if len(country) == 2 {
+			countryID = country
+		} else {
+			countryName = country
+		}
+	}
+	ageGroup := params.Get("age_group")
+	minAgeStr := params.Get("min_age")
+	maxAgeStr := params.Get("max_age")
+	minGenderProbStr := params.Get("min_gender_probability")
+	minCountryProbStr := params.Get("min_country_probability")
+	sortBy := strings.ToLower(params.Get("sort_by"))
+	if sortBy == "" {
+		sortBy = "created_at"
+	} else if sortBy != "age" && sortBy != "created_at" && sortBy != "gender_probability" {
+		h.errorResponse(w, http.StatusBadRequest, "Invalid query parameters")
+		return
+	}
+
+	sortDir := strings.ToLower(params.Get("order"))
+	if sortDir == "" {
+		sortDir = "desc"
+	} else if sortDir != "asc" && sortDir != "desc" {
+		h.errorResponse(w, http.StatusBadRequest, "Invalid query parameters")
+		return
+	}
+
+	limitVal := int32(10)
+	if limit != "" {
+		l, err := utils.ToInt32(limit)
+		if err != nil {
+			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
+			return
+		}
+		if l > 0 {
+			limitVal = l
+		}
+	}
+	if limitVal > 50 {
+		limitVal = 50
+	}
+
+	pageVal := int32(1)
+	if page != "" {
+		p, err := utils.ToInt32(page)
+		if err != nil {
+			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
+			return
+		}
+		if p > 0 {
+			pageVal = p
+		}
+	}
+
+	offsetVal := (pageVal - 1) * limitVal
+
+	// Prepare filters for SQL
+	genders := []string{}
+	if gender != "" {
+		genders = []string{strings.ToLower(gender)}
+	}
+
+	minAge := int32(0)
+	if minAgeStr != "" {
+		v, err := utils.ToInt32(minAgeStr)
+		if err != nil {
+			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
+			return
+		}
+		minAge = v
+	}
+	maxAge := int32(0)
+	if maxAgeStr != "" {
+		v, err := utils.ToInt32(maxAgeStr)
+		if err != nil {
+			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
+			return
+		}
+		maxAge = v
+	}
+	minGenderProb := float64(0)
+	if minGenderProbStr != "" {
+		v, err := utils.ToFloat64(minGenderProbStr)
+		if err != nil {
+			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
+			return
+		}
+		minGenderProb = v
+	}
+	minCountryProb := float64(0)
+	if minCountryProbStr != "" {
+		v, err := utils.ToFloat64(minCountryProbStr)
+		if err != nil {
+			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
+			return
+		}
+		minCountryProb = v
+	}
+
+	listParams := db.ListProfilesAdvancedParams{
+		Genders:        genders,
+		AgeGroup:       strings.ToLower(ageGroup),
+		CountryID:      strings.ToLower(countryID),
+		CountryName:    strings.ToLower(countryName),
+		MinAge:         minAge,
+		MaxAge:         maxAge,
+		MinGenderProb:  minGenderProb,
+		MinCountryProb: minCountryProb,
+		SortBy:         sortBy,
+		SortDirection:  sortDir,
+		LimitVal:       limitVal,
+		OffsetVal:      offsetVal,
+	}
+
+	profiles, err := h.queries.ListProfilesAdvanced(r.Context(), listParams)
+	if err != nil {
+		h.errorResponse(w, http.StatusInternalServerError, "Failed to fetch profiles for export")
+		return
+	}
+
+	// Set headers for CSV download
+	filename := fmt.Sprintf("profiles_%d.csv", time.Now().Unix())
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+
+	writer := csv.NewWriter(w)
+	defer writer.Flush()
+
+	// Write Header Row
+	header := []string{"id", "name", "gender", "gender_probability", "age", "age_group", "country_id", "country_name", "country_probability", "created_at"}
+	if err := writer.Write(header); err != nil {
+		return
+	}
+
+	// Write Data Rows
+	for _, p := range profiles {
+		row := []string{
+			uuid.UUID(p.ID.Bytes).String(),
+			p.Name,
+			p.Gender.String,
+			fmt.Sprintf("%.2f", p.GenderProbability.Float64),
+			fmt.Sprintf("%d", p.Age.Int32),
+			p.AgeGroup.String,
+			p.CountryID.String,
+			p.CountryName.String,
+			fmt.Sprintf("%.2f", p.CountryProbability.Float64),
+			p.CreatedAt.Time.UTC().Format(time.RFC3339),
+		}
+		if err := writer.Write(row); err != nil {
+			return
+		}
+	}
+}
+
+
