@@ -104,6 +104,29 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 	return i, err
 }
 
+const getUserByRefreshToken = `-- name: GetUserByRefreshToken :one
+SELECT id, github_id, username, email, avatar_url, role, is_active, last_login_at, created_at, refresh_token FROM users
+WHERE refresh_token = $1 LIMIT 1
+`
+
+func (q *Queries) GetUserByRefreshToken(ctx context.Context, refreshToken pgtype.Text) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByRefreshToken, refreshToken)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.GithubID,
+		&i.Username,
+		&i.Email,
+		&i.AvatarUrl,
+		&i.Role,
+		&i.IsActive,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.RefreshToken,
+	)
+	return i, err
+}
+
 const updateLastLogin = `-- name: UpdateLastLogin :exec
 UPDATE users
 SET last_login_at = NOW()

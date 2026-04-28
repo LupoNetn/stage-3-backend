@@ -20,10 +20,20 @@ type NationalizeResp struct {
 	} `json:"country"`
 }
 
-
-//auth types
+// auth types
 type GithubCLIAuth struct {
-	Code string `json:"code"`
-	State string `json:"state"`
+	Code         string `json:"code"`
+	State        string `json:"state"`
 	CodeVerifier string `json:"code_verifier"`
+}
+
+type GithubCallbackRequest struct {
+	Code  string `json:"code"`
+	State string `json:"state"`
+}
+
+type GithubAuthResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	Username     string `json:"username"`
 }

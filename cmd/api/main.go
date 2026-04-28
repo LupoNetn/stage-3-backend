@@ -24,8 +24,13 @@ func main() {
 
 	h := handlers.NewHandler(queries)
 
-    //auth endpoints
+	//auth endpoints
 	router.HandleFunc("POST /auth/github/cli", h.HandleGithubCLIAuth)
+	router.HandleFunc("GET /auth/github", h.HandleGithubAuth)
+	router.HandleFunc("POST /auth/github/callback", h.HandleGithubAuthCallback)
+	router.HandleFunc("GET /auth/me", h.HandleMe)
+	router.HandleFunc("POST /auth/refresh", h.HandleRefresh)
+	router.HandleFunc("POST /auth/logout", h.HandleLogout)
 
 	router.HandleFunc("POST /api/profiles", h.CreateProfile)
 	router.HandleFunc("GET /api/profiles/{id}", h.GetProfileByID)

@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/base64"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,62 +15,349 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/luponetn/hng-stage-1/internals/db"
 	httprequest "github.com/luponetn/hng-stage-1/internals/httpRequest"
+	"net/url"
 )
 
 func (h *Handler) HandleGithubCLIAuth(w http.ResponseWriter, r *http.Request) {
 	var req GithubCLIAuth
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		fmt.Println("Error decoding request:", err)
-		w.WriteHeader(400)
-		json.NewEncoder(w).Encode(map[string]any{
-			"status": "error",
-			"message": "invalid request",
-		})
+		h.errorResponse(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 
-    fmt.Println(req.Code, req.CodeVerifier, req.State)
-	githubTokenUrl := os.Getenv("GITHUB_OAUTH_TOKEN_URL")
 	githubClientId := os.Getenv("CLI_GITHUB_CLIENT_ID")
 	githubClientSecret := os.Getenv("CLI_GITHUB_CLIENT_SECRET")
 
-	body := struct {
-		Code         string `json:"code"`
-		CodeVerifier string `json:"code_verifier"`
-		State        string `json:"state"`
-		ClientId     string `json:"client_id"`
-		ClientSecret string `json:"client_secret"`
-	}{
-		Code:         req.Code,
-		CodeVerifier: req.CodeVerifier,
-		State:        req.State,
-		ClientId:     githubClientId,
-		ClientSecret: githubClientSecret,
+	resp, err := h.processGithubAuth(r.Context(), githubClientId, githubClientSecret, req.Code, req.State, req.CodeVerifier, "")
+	if err != nil {
+		fmt.Println("Error processing github auth:", err)
+		h.errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
-	data, err := httprequest.MakeRequest(r.Context(), "POST", githubTokenUrl, body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (h *Handler) HandleGithubAuth(w http.ResponseWriter, r *http.Request) {
+	state, err := GenerateRandomString(32)
 	if err != nil {
-		fmt.Println("Error exchanging code for token:", err)
-		w.WriteHeader(500)
-		json.NewEncoder(w).Encode(map[string]any{
-			"status": "error",
-			"message": "failed to exchange code for token",
-		})
+		fmt.Println("Failed to create state for oauth validation")
+		h.errorResponse(w, http.StatusInternalServerError, "failed to create state for oauth validation")
 		return
 	}
-	// Phase 5: Retrieve GitHub User
+
+	// Store state in a cookie for validation
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    state,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false, // Set to true in production with HTTPS
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   300, // 5 minutes
+	})
+
+	baseUrl := os.Getenv("GITHUB_OAUTH_AUTHORIZE_URL")
+	if baseUrl == "" {
+		baseUrl = "https://github.com/login/oauth/authorize"
+	}
+	client_id := os.Getenv("WEB_GITHUB_CLIENT_ID")
+	redirect_url := os.Getenv("WEB_GITHUB_REDIRECT_URL")
+
+	params := url.Values{}
+	params.Add("client_id", client_id)
+	params.Add("redirect_uri", redirect_url)
+	params.Add("state", state)
+	params.Add("scope", "read:user")
+
+	fullURL := fmt.Sprintf("%s?%s", baseUrl, params.Encode())
+
+	http.Redirect(w, r, fullURL, http.StatusSeeOther)
+}
+
+func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Request) {
+	var req GithubCallbackRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		fmt.Println("Error decoding request:", err)
+		h.errorResponse(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	// Get state from cookie
+	cookie, err := r.Cookie("oauth_state")
+	if err != nil {
+		fmt.Println("State cookie not found")
+		h.errorResponse(w, http.StatusUnauthorized, "missing state cookie")
+		return
+	}
+
+	if req.State != cookie.Value {
+		fmt.Println("Invalid state")
+		h.errorResponse(w, http.StatusUnauthorized, "invalid state")
+		return
+	}
+
+	// Clear the cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:   "oauth_state",
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
+
+	githubClientId := os.Getenv("WEB_GITHUB_CLIENT_ID")
+	githubClientSecret := os.Getenv("WEB_GITHUB_CLIENT_SECRET")
+	redirectUri := os.Getenv("WEB_GITHUB_REDIRECT_URL")
+
+	resp, err := h.processGithubAuth(r.Context(), githubClientId, githubClientSecret, req.Code, req.State, "", redirectUri)
+	if err != nil {
+		fmt.Println("Error processing github auth callback:", err)
+		h.errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Set HTTP-only cookies for web tokens
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    resp.AccessToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false, // Set to true in production
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   180, // 3 minutes
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    resp.RefreshToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false, // Set to true in production
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   300, // 5 minutes
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":   "success",
+		"message":  "logged in successfully",
+		"username": resp.Username,
+	})
+}
+
+func (h *Handler) HandleMe(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("access_token")
+	if err != nil {
+		h.errorResponse(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "super-secret-key-for-dev"
+	}
+
+	token, err := jwt.Parse(cookie.Value, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(secret), nil
+	})
+
+	if err != nil || !token.Valid {
+		h.errorResponse(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		h.errorResponse(w, http.StatusUnauthorized, "invalid claims")
+		return
+	}
+
+	userIDStr, ok := claims["user_id"].(string)
+	if !ok {
+		h.errorResponse(w, http.StatusUnauthorized, "user_id not found in token")
+		return
+	}
+
+	uID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		h.errorResponse(w, http.StatusUnauthorized, "invalid user_id format")
+		return
+	}
+
+	user, err := h.queries.GetUserByID(r.Context(), toUUID(uID))
+	if err != nil {
+		h.errorResponse(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]any{
+		"status": "success",
+		"data": map[string]any{
+			"id":         userIDStr,
+			"username":   user.Username,
+			"email":      user.Email,
+			"avatar_url": user.AvatarUrl.String,
+			"role":       user.Role,
+		},
+	})
+}
+
+
+func (h *Handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
+	var rt string
+
+	// 1. Try to get refresh token from body
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.RefreshToken != "" {
+		rt = req.RefreshToken
+	} else {
+		// 2. Try to get from cookie if not in body
+		if cookie, err := r.Cookie("refresh_token"); err == nil {
+			rt = cookie.Value
+		}
+	}
+
+	if rt == "" {
+		h.errorResponse(w, http.StatusUnauthorized, "missing refresh token")
+		return
+	}
+
+	// 3. Find user by refresh token
+	user, err := h.queries.GetUserByRefreshToken(r.Context(), toText(rt))
+	if err != nil {
+		h.errorResponse(w, http.StatusUnauthorized, "invalid or expired refresh token")
+		return
+	}
+
+	// 4. Verify the refresh token JWT
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "super-secret-key-for-dev"
+	}
+	token, err := jwt.Parse(rt, func(token *jwt.Token) (interface{}, error) {
+		return []byte(secret), nil
+	})
+	if err != nil || !token.Valid {
+		h.errorResponse(w, http.StatusUnauthorized, "invalid refresh token")
+		return
+	}
+
+	// 5. Invalidate old token and generate new pair
+	// Set old token to null in DB immediately
+	h.queries.UpdateRefreshToken(r.Context(), db.UpdateRefreshTokenParams{
+		ID:           user.ID,
+		RefreshToken: toText(""),
+	})
+
+	newAT, _ := generateToken(user.ID, user.Username, 3*time.Minute)
+	newRT, _ := generateToken(user.ID, user.Username, 5*time.Minute)
+
+	// 6. Save new refresh token
+	h.queries.UpdateRefreshToken(r.Context(), db.UpdateRefreshTokenParams{
+		ID:           user.ID,
+		RefreshToken: toText(newRT),
+	})
+
+	// 7. Set cookies for web clients
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    newAT,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   180,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    newRT,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   300,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":        "success",
+		"access_token":  newAT,
+		"refresh_token": newRT,
+	})
+}
+
+func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
+	var rt string
+	if cookie, err := r.Cookie("refresh_token"); err == nil {
+		rt = cookie.Value
+	}
+
+	if rt != "" {
+		user, err := h.queries.GetUserByRefreshToken(r.Context(), toText(rt))
+		if err == nil {
+			h.queries.UpdateRefreshToken(r.Context(), db.UpdateRefreshTokenParams{
+				ID:           user.ID,
+				RefreshToken: toText(""),
+			})
+		}
+	}
+
+	// Clear cookies
+	http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "", Path: "/", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: "", Path: "/", MaxAge: -1})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":  "success",
+		"message": "logged out successfully",
+	})
+}
+
+func (h *Handler) processGithubAuth(ctx context.Context, clientID, clientSecret, code, state, codeVerifier, redirectURI string) (*GithubAuthResponse, error) {
+	githubTokenUrl := os.Getenv("GITHUB_OAUTH_TOKEN_URL")
+	if githubTokenUrl == "" {
+		githubTokenUrl = "https://github.com/login/oauth/access_token"
+	}
+
+	body := map[string]string{
+		"code":          code,
+		"state":         state,
+		"client_id":     clientID,
+		"client_secret": clientSecret,
+	}
+	if codeVerifier != "" {
+		body["code_verifier"] = codeVerifier
+	}
+	if redirectURI != "" {
+		body["redirect_uri"] = redirectURI
+	}
+
+	data, err := httprequest.MakeRequest(ctx, "POST", githubTokenUrl, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to exchange code for token: %w", err)
+	}
+
 	tokenMap, ok := data.(map[string]any)
 	if !ok {
-		fmt.Println("Error parsing token response")
-		w.WriteHeader(500)
-		return
+		return nil, fmt.Errorf("invalid token response from github")
 	}
-	
+
 	accessToken, ok := tokenMap["access_token"].(string)
 	if !ok {
-		fmt.Println("Access token not found in response")
-		w.WriteHeader(500)
-		return
+		return nil, fmt.Errorf("access token not found in github response")
 	}
 
 	githubUserUrl := os.Getenv("GITHUB_USER_URL")
@@ -79,79 +369,65 @@ func (h *Handler) HandleGithubCLIAuth(w http.ResponseWriter, r *http.Request) {
 		"Authorization": fmt.Sprintf("Bearer %s", accessToken),
 	}
 
-	userData, err := httprequest.MakeRequestWithHeaders(r.Context(), "GET", githubUserUrl, nil, headers)
+	userData, err := httprequest.MakeRequestWithHeaders(ctx, "GET", githubUserUrl, nil, headers)
 	if err != nil {
-		fmt.Println("Error fetching github user:", err)
-		w.WriteHeader(500)
-		return
+		return nil, fmt.Errorf("failed to fetch github user: %w", err)
 	}
 
 	userMap, ok := userData.(map[string]any)
-	if ok {
-		fmt.Printf("login: %v\nid: %v\n", userMap["login"], userMap["id"])
-
-		// User Creation / Login
-		githubIDStr := fmt.Sprintf("%v", userMap["id"])
-		usernameStr := fmt.Sprintf("%v", userMap["login"])
-		emailStr := ""
-		if email, ok := userMap["email"].(string); ok {
-			emailStr = email
-		}
-		avatarUrlStr := ""
-		if avatar, ok := userMap["avatar_url"].(string); ok {
-			avatarUrlStr = avatar
-		}
-
-		var finalUser db.User
-		existingUser, err := h.queries.GetUserByGithubID(r.Context(), githubIDStr)
-		if err == nil {
-			// User exists -> login
-			h.queries.UpdateLastLogin(r.Context(), existingUser.ID)
-			finalUser = existingUser
-		} else {
-			// User doesn't exist -> create user
-			newID, _ := uuid.NewV7()
-			finalUser, err = h.queries.CreateUser(r.Context(), db.CreateUserParams{
-				ID:          toUUID(newID),
-				GithubID:    githubIDStr,
-				Username:    usernameStr,
-				Email:       emailStr,
-				AvatarUrl:   toText(avatarUrlStr),
-				Role:        "analyst",
-				IsActive:    true,
-				LastLoginAt: toTimestamptz(time.Now()),
-			})
-			if err != nil {
-				fmt.Println("Error creating user:", err)
-				w.WriteHeader(500)
-				return
-			}
-		}
-
-		// Phase 7: Generate Tokens
-		accessToken, _ := generateToken(finalUser.ID, finalUser.Username, 3*time.Minute)
-		refreshToken, _ := generateToken(finalUser.ID, finalUser.Username, 5*time.Minute)
-
-		// Store refresh token
-		h.queries.UpdateRefreshToken(r.Context(), db.UpdateRefreshTokenParams{
-			ID:           finalUser.ID,
-			RefreshToken: toText(refreshToken),
-		})
-
-		// Phase 8: Return Tokens to CLI
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]any{
-			"access_token":  accessToken,
-			"refresh_token": refreshToken,
-			"username":      finalUser.Username,
-		})
-		return
+	if !ok {
+		return nil, fmt.Errorf("invalid user data from github")
 	}
 
-	h.errorResponse(w, http.StatusInternalServerError, "failed to retrieve user profile from GitHub")
+	githubIDStr := fmt.Sprintf("%v", userMap["id"])
+	usernameStr := fmt.Sprintf("%v", userMap["login"])
+	emailStr := ""
+	if email, ok := userMap["email"].(string); ok {
+		emailStr = email
+	}
+	avatarUrlStr := ""
+	if avatar, ok := userMap["avatar_url"].(string); ok {
+		avatarUrlStr = avatar
+	}
+
+	var finalUser db.User
+	existingUser, err := h.queries.GetUserByGithubID(ctx, githubIDStr)
+	if err == nil {
+		h.queries.UpdateLastLogin(ctx, existingUser.ID)
+		finalUser = existingUser
+	} else {
+		newID, _ := uuid.NewV7()
+		finalUser, err = h.queries.CreateUser(ctx, db.CreateUserParams{
+			ID:          toUUID(newID),
+			GithubID:    githubIDStr,
+			Username:    usernameStr,
+			Email:       emailStr,
+			AvatarUrl:   toText(avatarUrlStr),
+			Role:        "analyst",
+			IsActive:    true,
+			LastLoginAt: toTimestamptz(time.Now()),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create user: %w", err)
+		}
+	}
+
+	appAccessToken, _ := generateToken(finalUser.ID, finalUser.Username, 3*time.Minute)
+	appRefreshToken, _ := generateToken(finalUser.ID, finalUser.Username, 5*time.Minute)
+
+	h.queries.UpdateRefreshToken(ctx, db.UpdateRefreshTokenParams{
+		ID:           finalUser.ID,
+		RefreshToken: toText(appRefreshToken),
+	})
+
+	return &GithubAuthResponse{
+		AccessToken:  appAccessToken,
+		RefreshToken: appRefreshToken,
+		Username:     finalUser.Username,
+	}, nil
 }
 
+// helpers
 func generateToken(userID pgtype.UUID, username string, duration time.Duration) (string, error) {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
@@ -165,4 +441,15 @@ func generateToken(userID pgtype.UUID, username string, duration time.Duration) 
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secret))
+}
+
+func GenerateRandomString(n int) (string, error) {
+	b := make([]byte, n)
+
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", err
+	}
+
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }

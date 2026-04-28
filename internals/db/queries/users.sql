@@ -23,3 +23,7 @@ WHERE id = $1;
 UPDATE users
 SET refresh_token = $2
 WHERE id = $1;
+
+-- name: GetUserByRefreshToken :one
+SELECT * FROM users
+WHERE refresh_token = $1 LIMIT 1;
