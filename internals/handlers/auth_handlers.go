@@ -8,7 +8,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/luponetn/hng-stage-1/internals/db"
 	httprequest "github.com/luponetn/hng-stage-1/internals/httpRequest"
@@ -154,31 +153,14 @@ func (h *Handler) HandleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "super-secret-key-for-dev"
-	}
-
-	token, err := jwt.Parse(cookie.Value, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(secret), nil
-	})
-
-	if err != nil || !token.Valid {
-		h.errorResponse(w, http.StatusUnauthorized, "invalid token")
+	claims, err := utils.VerifyToken(cookie.Value)
+	if err != nil {
+		h.errorResponse(w, http.StatusUnauthorized, "invalid or expired token")
 		return
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		h.errorResponse(w, http.StatusUnauthorized, "invalid claims")
-		return
-	}
-
-	userIDStr, ok := claims["user_id"].(string)
-	if !ok {
+	userIDStr := claims.UserID
+	if userIDStr == "" {
 		h.errorResponse(w, http.StatusUnauthorized, "user_id not found in token")
 		return
 	}
@@ -237,16 +219,9 @@ func (h *Handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Verify the refresh token JWT
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "super-secret-key-for-dev"
-	}
-	token, err := jwt.Parse(rt, func(token *jwt.Token) (interface{}, error) {
-		return []byte(secret), nil
-	})
-	if err != nil || !token.Valid {
-		h.errorResponse(w, http.StatusUnauthorized, "invalid refresh token")
+	_, err = utils.VerifyToken(rt)
+	if err != nil {
+		h.errorResponse(w, http.StatusUnauthorized, "invalid or expired refresh token")
 		return
 	}
 
