@@ -45,3 +45,4 @@ func mapToStruct(src any, dest any) error {
 	}
 	return json.Unmarshal(b, dest)
 }
+
