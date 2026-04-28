@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,9 +10,9 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/luponetn/hng-stage-1/internals/db"
 	httprequest "github.com/luponetn/hng-stage-1/internals/httpRequest"
+	"github.com/luponetn/hng-stage-1/utils"
 	"net/url"
 )
 
@@ -42,7 +40,7 @@ func (h *Handler) HandleGithubCLIAuth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleGithubAuth(w http.ResponseWriter, r *http.Request) {
-	state, err := GenerateRandomString(32)
+	state, err := utils.GenerateRandomString(32)
 	if err != nil {
 		fmt.Println("Failed to create state for oauth validation")
 		h.errorResponse(w, http.StatusInternalServerError, "failed to create state for oauth validation")
@@ -191,7 +189,7 @@ func (h *Handler) HandleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.queries.GetUserByID(r.Context(), toUUID(uID))
+	user, err := h.queries.GetUserByID(r.Context(), utils.ToUUID(uID))
 	if err != nil {
 		h.errorResponse(w, http.StatusNotFound, "user not found")
 		return
@@ -210,7 +208,6 @@ func (h *Handler) HandleMe(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 }
-
 
 func (h *Handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	var rt string
@@ -234,7 +231,7 @@ func (h *Handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Find user by refresh token
-	user, err := h.queries.GetUserByRefreshToken(r.Context(), toText(rt))
+	user, err := h.queries.GetUserByRefreshToken(r.Context(), utils.ToText(rt))
 	if err != nil {
 		h.errorResponse(w, http.StatusUnauthorized, "invalid or expired refresh token")
 		return
@@ -257,16 +254,16 @@ func (h *Handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	// Set old token to null in DB immediately
 	h.queries.UpdateRefreshToken(r.Context(), db.UpdateRefreshTokenParams{
 		ID:           user.ID,
-		RefreshToken: toText(""),
+		RefreshToken: utils.ToText(""),
 	})
 
-	newAT, _ := generateToken(user.ID, user.Username, 3*time.Minute)
-	newRT, _ := generateToken(user.ID, user.Username, 5*time.Minute)
+	newAT, _ := utils.GenerateToken(uuid.UUID(user.ID.Bytes).String(), user.Username, user.GithubID, user.Email, user.Role, 3*time.Minute)
+	newRT, _ := utils.GenerateToken(uuid.UUID(user.ID.Bytes).String(), user.Username, user.GithubID, user.Email, user.Role, 5*time.Minute)
 
 	// 6. Save new refresh token
 	h.queries.UpdateRefreshToken(r.Context(), db.UpdateRefreshTokenParams{
 		ID:           user.ID,
-		RefreshToken: toText(newRT),
+		RefreshToken: utils.ToText(newRT),
 	})
 
 	// 7. Set cookies for web clients
@@ -305,11 +302,11 @@ func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if rt != "" {
-		user, err := h.queries.GetUserByRefreshToken(r.Context(), toText(rt))
+		user, err := h.queries.GetUserByRefreshToken(r.Context(), utils.ToText(rt))
 		if err == nil {
 			h.queries.UpdateRefreshToken(r.Context(), db.UpdateRefreshTokenParams{
 				ID:           user.ID,
-				RefreshToken: toText(""),
+				RefreshToken: utils.ToText(""),
 			})
 		}
 	}
@@ -398,26 +395,26 @@ func (h *Handler) processGithubAuth(ctx context.Context, clientID, clientSecret,
 	} else {
 		newID, _ := uuid.NewV7()
 		finalUser, err = h.queries.CreateUser(ctx, db.CreateUserParams{
-			ID:          toUUID(newID),
+			ID:          utils.ToUUID(newID),
 			GithubID:    githubIDStr,
 			Username:    usernameStr,
 			Email:       emailStr,
-			AvatarUrl:   toText(avatarUrlStr),
+			AvatarUrl:   utils.ToText(avatarUrlStr),
 			Role:        "analyst",
 			IsActive:    true,
-			LastLoginAt: toTimestamptz(time.Now()),
+			LastLoginAt: utils.ToTimestamptz(time.Now()),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create user: %w", err)
 		}
 	}
 
-	appAccessToken, _ := generateToken(finalUser.ID, finalUser.Username, 3*time.Minute)
-	appRefreshToken, _ := generateToken(finalUser.ID, finalUser.Username, 5*time.Minute)
+	appAccessToken, _ := utils.GenerateToken(uuid.UUID(finalUser.ID.Bytes).String(), finalUser.Username, finalUser.GithubID, finalUser.Email, finalUser.Role, 3*time.Minute)
+	appRefreshToken, _ := utils.GenerateToken(uuid.UUID(finalUser.ID.Bytes).String(), finalUser.Username, finalUser.GithubID, finalUser.Email, finalUser.Role, 5*time.Minute)
 
 	h.queries.UpdateRefreshToken(ctx, db.UpdateRefreshTokenParams{
 		ID:           finalUser.ID,
-		RefreshToken: toText(appRefreshToken),
+		RefreshToken: utils.ToText(appRefreshToken),
 	})
 
 	return &GithubAuthResponse{
@@ -425,31 +422,4 @@ func (h *Handler) processGithubAuth(ctx context.Context, clientID, clientSecret,
 		RefreshToken: appRefreshToken,
 		Username:     finalUser.Username,
 	}, nil
-}
-
-// helpers
-func generateToken(userID pgtype.UUID, username string, duration time.Duration) (string, error) {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "super-secret-key-for-dev"
-	}
-
-	claims := jwt.MapClaims{
-		"user_id":  uuid.UUID(userID.Bytes).String(),
-		"username": username,
-		"exp":      time.Now().Add(duration).Unix(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(secret))
-}
-
-func GenerateRandomString(n int) (string, error) {
-	b := make([]byte, n)
-
-	_, err := rand.Read(b)
-	if err != nil {
-		return "", err
-	}
-
-	return base64.RawURLEncoding.EncodeToString(b), nil
 }

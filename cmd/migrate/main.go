@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
 	"github.com/luponetn/hng-stage-1/internals/config"
 	_ "github.com/luponetn/hng-stage-1/internals/db/schema"
 	"github.com/pressly/goose/v3"
+	"log"
 )
 
 func main() {

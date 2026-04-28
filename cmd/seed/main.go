@@ -7,11 +7,11 @@ import (
 	"log"
 	"os"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/joho/godotenv"
 	"github.com/luponetn/hng-stage-1/internals/config"
 	"github.com/luponetn/hng-stage-1/internals/db"
-	"github.com/google/uuid"
 )
 
 type SeedData struct {

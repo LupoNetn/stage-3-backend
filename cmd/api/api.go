@@ -1,18 +1,17 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
+	"github.com/luponetn/hng-stage-1/utils"
 )
 
 func CreateRouter() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
+		utils.JSONResponse(w, http.StatusOK, map[string]string{
 			"status": "ok",
 		})
 	})

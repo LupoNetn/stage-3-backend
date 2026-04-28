@@ -2,29 +2,35 @@ package main
 
 import (
 	"log"
+	"net/http"
 
 	"github.com/luponetn/hng-stage-1/internals/config"
 	"github.com/luponetn/hng-stage-1/internals/db"
 	"github.com/luponetn/hng-stage-1/internals/handlers"
+	"github.com/luponetn/hng-stage-1/middlewares"
 )
 
 func main() {
+	// 1. Initialize Configuration
 	cfg := config.LoadConfig()
 
-	router := CreateRouter()
+	// 2. Setup Router
+	router := http.NewServeMux()
 
-	//connect with db
+	// 3. Connect to Database
 	pool, err := db.ConnectDB(cfg.DBURL)
 	if err != nil {
 		log.Fatalf("could not connect to database: %v", err)
 	}
 	defer pool.Close()
 
+	// 4. Initialize Handlers
 	queries := db.New(pool)
-
 	h := handlers.NewHandler(queries)
 
-	//auth endpoints
+	// ==========================================
+	// AUTHENTICATION ROUTES
+	// ==========================================
 	router.HandleFunc("POST /auth/github/cli", h.HandleGithubCLIAuth)
 	router.HandleFunc("GET /auth/github", h.HandleGithubAuth)
 	router.HandleFunc("POST /auth/github/callback", h.HandleGithubAuthCallback)
@@ -32,12 +38,41 @@ func main() {
 	router.HandleFunc("POST /auth/refresh", h.HandleRefresh)
 	router.HandleFunc("POST /auth/logout", h.HandleLogout)
 
-	router.HandleFunc("POST /api/profiles", h.CreateProfile)
-	router.HandleFunc("GET /api/profiles/{id}", h.GetProfileByID)
-	router.HandleFunc("GET /api/profiles", h.GetProfiles)
-	router.HandleFunc("GET /api/profiles/search", h.SearchProfiles)
-	router.HandleFunc("DELETE /api/profiles/{id}", h.DeleteProfileByID)
+	
+	
+	// Admin Only Routes
+	router.Handle("POST /api/profiles", 
+		middlewares.AuthMiddleware(
+			middlewares.AuthorizeAdmin(http.HandlerFunc(h.CreateProfile)),
+		),
+	)
+	
+	router.Handle("DELETE /api/profiles/{id}", 
+		middlewares.AuthMiddleware(
+			middlewares.AuthorizeAdmin(http.HandlerFunc(h.DeleteProfileByID)),
+		),
+	)
 
+	// protected routes
+	router.Handle("GET /api/profiles/{id}", 
+		middlewares.AuthMiddleware(
+			middlewares.Authorize(http.HandlerFunc(h.GetProfileByID)),
+		),
+	)
+	
+	router.Handle("GET /api/profiles", 
+		middlewares.AuthMiddleware(
+			middlewares.Authorize(http.HandlerFunc(h.GetProfiles)),
+		),
+	)
+	
+	router.Handle("GET /api/profiles/search", 
+		middlewares.AuthMiddleware(
+			middlewares.Authorize(http.HandlerFunc(h.SearchProfiles)),
+		),
+	)
+
+	
 	if err := StartServer(router, cfg.Port); err != nil {
 		log.Fatalf("could not start server: %v", err)
 	}
