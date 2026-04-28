@@ -18,7 +18,7 @@ func init() {
 func upSeedUsers(ctx context.Context, tx *sql.Tx) error {
 	data, err := os.ReadFile("../../seed_profiles.json")
 	if err != nil {
-		
+
 		data, err = os.ReadFile("./seed_profiles.json")
 		if err != nil {
 			fmt.Println("could not read json file for seeding db")
@@ -48,7 +48,7 @@ func upSeedUsers(ctx context.Context, tx *sql.Tx) error {
 
 	for _, p := range root.Profiles {
 		uid, _ := uuid.NewV7()
-		
+
 		gender := sql.NullString{String: p.Gender, Valid: p.Gender != ""}
 		genderProb := sql.NullFloat64{Float64: p.GenderProbability, Valid: true}
 		age := sql.NullInt32{Int32: p.Age, Valid: true}

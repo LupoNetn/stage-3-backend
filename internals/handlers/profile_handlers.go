@@ -12,6 +12,7 @@ import (
 
 	"github.com/luponetn/hng-stage-1/internals/db"
 	httprequest "github.com/luponetn/hng-stage-1/internals/httpRequest"
+	"github.com/luponetn/hng-stage-1/utils"
 )
 
 func (h *Handler) CreateProfile(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +104,7 @@ func (h *Handler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process age group
-	ageGroup := classifyAgeGroup(ageResp.Age)
+	ageGroup := utils.ClassifyAgeGroup(ageResp.Age)
 
 	// Create UUID v7
 	id, err := uuid.NewV7()
@@ -114,15 +115,15 @@ func (h *Handler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 
 	// Store in DB
 	profile, err := h.queries.CreateProfile(r.Context(), db.CreateProfileParams{
-		ID:                 toUUID(id),
+		ID:                 utils.ToUUID(id),
 		Name:               name,
-		Gender:             toText(genderResp.Gender),
-		GenderProbability:  toFloat8(genderResp.Probability),
-		Age:                toInt4(ageResp.Age),
-		AgeGroup:           toText(ageGroup),
-		CountryID:          toText(bestCountry),
-		CountryName:        toText(""), // nationalize.io does not provide full country names
-		CountryProbability: toFloat8(bestProb),
+		Gender:             utils.ToText(genderResp.Gender),
+		GenderProbability:  utils.ToFloat8(genderResp.Probability),
+		Age:                utils.ToInt4(ageResp.Age),
+		AgeGroup:           utils.ToText(ageGroup),
+		CountryID:          utils.ToText(bestCountry),
+		CountryName:        utils.ToText(""), // nationalize.io does not provide full country names
+		CountryProbability: utils.ToFloat8(bestProb),
 	})
 
 	if err != nil {
@@ -146,7 +147,7 @@ func (h *Handler) GetProfileByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, err := h.queries.GetProfile(r.Context(), toUUID(id))
+	profile, err := h.queries.GetProfile(r.Context(), utils.ToUUID(id))
 	if err != nil {
 		h.errorResponse(w, http.StatusNotFound, "Profile not found")
 		return
@@ -184,7 +185,7 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 
 	limitVal := int32(10)
 	if limit != "" {
-		l, err := toInt32(limit)
+		l, err := utils.ToInt32(limit)
 		if err != nil {
 			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
 			return
@@ -199,7 +200,7 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 
 	pageVal := int32(1)
 	if page != "" {
-		p, err := toInt32(page)
+		p, err := utils.ToInt32(page)
 		if err != nil {
 			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
 			return
@@ -219,7 +220,7 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 
 	minAge := int32(0)
 	if minAgeStr != "" {
-		v, err := toInt32(minAgeStr)
+		v, err := utils.ToInt32(minAgeStr)
 		if err != nil {
 			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
 			return
@@ -228,7 +229,7 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 	maxAge := int32(0)
 	if maxAgeStr != "" {
-		v, err := toInt32(maxAgeStr)
+		v, err := utils.ToInt32(maxAgeStr)
 		if err != nil {
 			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
 			return
@@ -237,7 +238,7 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 	minGenderProb := float64(0)
 	if minGenderProbStr != "" {
-		v, err := toFloat64(minGenderProbStr)
+		v, err := utils.ToFloat64(minGenderProbStr)
 		if err != nil {
 			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
 			return
@@ -246,7 +247,7 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 	minCountryProb := float64(0)
 	if minCountryProbStr != "" {
-		v, err := toFloat64(minCountryProbStr)
+		v, err := utils.ToFloat64(minCountryProbStr)
 		if err != nil {
 			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
 			return
@@ -325,9 +326,9 @@ func (h *Handler) SearchProfiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens := NormalizeAndTokenize(q)
+	tokens := utils.NormalizeAndTokenize(q)
 
-	filters, interpretable := CreateRuleBasedFilter(tokens)
+	filters, interpretable := utils.CreateRuleBasedFilter(tokens)
 	if !interpretable {
 		h.errorResponse(w, http.StatusUnprocessableEntity, "Unable to interpret query")
 		return
@@ -336,7 +337,7 @@ func (h *Handler) SearchProfiles(w http.ResponseWriter, r *http.Request) {
 	// Pagination
 	limitVal := int32(10)
 	if lStr := params.Get("limit"); lStr != "" {
-		l, err := toInt32(lStr)
+		l, err := utils.ToInt32(lStr)
 		if err != nil {
 			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
 			return
@@ -350,7 +351,7 @@ func (h *Handler) SearchProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 	pageVal := int32(1)
 	if pStr := params.Get("page"); pStr != "" {
-		p, err := toInt32(pStr)
+		p, err := utils.ToInt32(pStr)
 		if err != nil {
 			h.errorResponse(w, http.StatusUnprocessableEntity, "Invalid parameter type")
 			return
@@ -450,14 +451,14 @@ func (h *Handler) DeleteProfileByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1. Check if the profile exists
-	_, err = h.queries.GetProfile(r.Context(), toUUID(id))
+	_, err = h.queries.GetProfile(r.Context(), utils.ToUUID(id))
 	if err != nil {
 		h.errorResponse(w, http.StatusNotFound, "Profile not found")
 		return
 	}
 
 	// 2. Perform the deletion
-	err = h.queries.DeleteProfile(r.Context(), toUUID(id))
+	err = h.queries.DeleteProfile(r.Context(), utils.ToUUID(id))
 	if err != nil {
 		h.errorResponse(w, http.StatusInternalServerError, "Failed to delete profile")
 		return

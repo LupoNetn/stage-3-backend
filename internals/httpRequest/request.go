@@ -39,9 +39,8 @@ func MakeRequestWithHeaders(ctx context.Context, method string, url string, body
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	
 
-	resp,err := client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Println("error occured when trying to make a request")
 		return nil, err
@@ -52,7 +51,7 @@ func MakeRequestWithHeaders(ctx context.Context, method string, url string, body
 		fmt.Println("Error: Something went wrong")
 		return nil, fmt.Errorf("Something went wrong: %d", resp.StatusCode)
 	}
-     
+
 	var data any
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		fmt.Println("error occured when trying to decode the response")

@@ -21,7 +21,7 @@ func ConnectDB(dbURL string) (*pgxpool.Pool, error) {
 	config.MaxConns = 10
 	config.MinConns = 2
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
