@@ -42,33 +42,51 @@ func main() {
 	
 	// Admin Only Routes
 	router.Handle("POST /api/profiles", 
-		middlewares.AuthMiddleware(
-			middlewares.AuthorizeAdmin(http.HandlerFunc(h.CreateProfile)),
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.AuthorizeAdmin(http.HandlerFunc(h.CreateProfile)),
+			),
 		),
 	)
 	
 	router.Handle("DELETE /api/profiles/{id}", 
-		middlewares.AuthMiddleware(
-			middlewares.AuthorizeAdmin(http.HandlerFunc(h.DeleteProfileByID)),
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.AuthorizeAdmin(http.HandlerFunc(h.DeleteProfileByID)),
+			),
 		),
 	)
 
 	// protected routes
 	router.Handle("GET /api/profiles/{id}", 
-		middlewares.AuthMiddleware(
-			middlewares.Authorize(http.HandlerFunc(h.GetProfileByID)),
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.Authorize(http.HandlerFunc(h.GetProfileByID)),
+			),
 		),
 	)
 	
 	router.Handle("GET /api/profiles", 
-		middlewares.AuthMiddleware(
-			middlewares.Authorize(http.HandlerFunc(h.GetProfiles)),
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.Authorize(http.HandlerFunc(h.GetProfiles)),
+			),
 		),
 	)
 	
 	router.Handle("GET /api/profiles/search", 
-		middlewares.AuthMiddleware(
-			middlewares.Authorize(http.HandlerFunc(h.SearchProfiles)),
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.Authorize(http.HandlerFunc(h.SearchProfiles)),
+			),
+		),
+	)
+
+	router.Handle("GET /api/profiles/export", 
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.AuthorizeAdmin(http.HandlerFunc(h.ExportProfiles)),
+			),
 		),
 	)
 
