@@ -33,8 +33,13 @@ func main() {
 	// ==========================================
 	router.HandleFunc("POST /auth/github/cli", h.HandleGithubCLIAuth)
 	router.HandleFunc("GET /auth/github", h.HandleGithubAuth)
+	router.HandleFunc("GET /auth/github/url", h.HandleGithubAuthURL)
 	router.HandleFunc("POST /auth/github/callback", h.HandleGithubAuthCallback)
-	router.HandleFunc("GET /auth/me", h.HandleMe)
+	router.Handle("GET /auth/me", 
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(http.HandlerFunc(h.HandleMe)),
+		),
+	)
 	router.HandleFunc("POST /auth/refresh", h.HandleRefresh)
 	router.HandleFunc("POST /auth/logout", h.HandleLogout)
 
@@ -85,7 +90,7 @@ func main() {
 	router.Handle("GET /api/profiles/export", 
 		middlewares.VersionMiddleware(
 			middlewares.AuthMiddleware(
-				middlewares.AuthorizeAdmin(http.HandlerFunc(h.ExportProfiles)),
+				middlewares.Authorize(http.HandlerFunc(h.ExportProfiles)),
 			),
 		),
 	)

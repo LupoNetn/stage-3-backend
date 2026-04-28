@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/luponetn/hng-stage-1/internals/db"
 	httprequest "github.com/luponetn/hng-stage-1/internals/httpRequest"
+	"github.com/luponetn/hng-stage-1/middlewares"
 	"github.com/luponetn/hng-stage-1/utils"
 	"net/url"
 )
@@ -38,23 +39,22 @@ func (h *Handler) HandleGithubCLIAuth(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-func (h *Handler) HandleGithubAuth(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleGithubAuthURL(w http.ResponseWriter, r *http.Request) {
 	state, err := utils.GenerateRandomString(32)
 	if err != nil {
-		fmt.Println("Failed to create state for oauth validation")
-		h.errorResponse(w, http.StatusInternalServerError, "failed to create state for oauth validation")
+		h.errorResponse(w, http.StatusInternalServerError, "failed to create state")
 		return
 	}
 
-	// Store state in a cookie for validation
+	// Store state in a cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oauth_state",
 		Value:    state,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false, // Set to true in production with HTTPS
+		Secure:   false, 
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   300, // 5 minutes
+		MaxAge:   300,
 	})
 
 	baseUrl := os.Getenv("GITHUB_OAUTH_AUTHORIZE_URL")
@@ -72,6 +72,44 @@ func (h *Handler) HandleGithubAuth(w http.ResponseWriter, r *http.Request) {
 
 	fullURL := fmt.Sprintf("%s?%s", baseUrl, params.Encode())
 
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status": "success",
+		"url":    fullURL,
+	})
+}
+
+func (h *Handler) HandleGithubAuth(w http.ResponseWriter, r *http.Request) {
+	state, err := utils.GenerateRandomString(32)
+	if err != nil {
+		h.errorResponse(w, http.StatusInternalServerError, "failed to create state")
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    state,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   300,
+	})
+
+	baseUrl := os.Getenv("GITHUB_OAUTH_AUTHORIZE_URL")
+	if baseUrl == "" {
+		baseUrl = "https://github.com/login/oauth/authorize"
+	}
+	client_id := os.Getenv("WEB_GITHUB_CLIENT_ID")
+	redirect_url := os.Getenv("WEB_GITHUB_REDIRECT_URL")
+
+	params := url.Values{}
+	params.Add("client_id", client_id)
+	params.Add("redirect_uri", redirect_url)
+	params.Add("state", state)
+	params.Add("scope", "read:user")
+
+	fullURL := fmt.Sprintf("%s?%s", baseUrl, params.Encode())
 	http.Redirect(w, r, fullURL, http.StatusSeeOther)
 }
 
@@ -147,30 +185,23 @@ func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) HandleMe(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("access_token")
-	if err != nil {
-		h.errorResponse(w, http.StatusUnauthorized, "unauthorized")
+	// 1. Get user claims from context
+	claims, ok := middlewares.GetUserClaims(r.Context())
+	if !ok {
+		h.errorResponse(w, http.StatusUnauthorized, "unauthorized: missing user claims in context")
 		return
 	}
 
-	claims, err := utils.VerifyToken(cookie.Value)
-	if err != nil {
-		h.errorResponse(w, http.StatusUnauthorized, "invalid or expired token")
-		return
-	}
+	userID := claims.UserID
 
-	userIDStr := claims.UserID
-	if userIDStr == "" {
-		h.errorResponse(w, http.StatusUnauthorized, "user_id not found in token")
-		return
-	}
-
-	uID, err := uuid.Parse(userIDStr)
+	// 2. Parse UUID
+	uID, err := uuid.Parse(userID)
 	if err != nil {
 		h.errorResponse(w, http.StatusUnauthorized, "invalid user_id format")
 		return
 	}
 
+	// 3. Fetch user from DB
 	user, err := h.queries.GetUserByID(r.Context(), utils.ToUUID(uID))
 	if err != nil {
 		h.errorResponse(w, http.StatusNotFound, "user not found")
@@ -182,7 +213,7 @@ func (h *Handler) HandleMe(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{
 		"status": "success",
 		"data": map[string]any{
-			"id":         userIDStr,
+			"id":         userID,
 			"username":   user.Username,
 			"email":      user.Email,
 			"avatar_url": user.AvatarUrl.String,

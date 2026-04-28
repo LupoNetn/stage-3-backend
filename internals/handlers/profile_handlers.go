@@ -163,6 +163,15 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 	limit := params.Get("limit")
 	gender := params.Get("gender")
 	countryID := params.Get("country_id")
+	countryName := params.Get("country_name")
+	country := params.Get("country")
+	if country != "" {
+		if len(country) == 2 {
+			countryID = country
+		} else {
+			countryName = country
+		}
+	}
 	ageGroup := params.Get("age_group")
 	minAgeStr := params.Get("min_age")
 	maxAgeStr := params.Get("max_age")
@@ -260,6 +269,7 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 		Genders:        genders,
 		AgeGroup:       strings.ToLower(ageGroup),
 		CountryID:      strings.ToLower(countryID),
+		CountryName:    strings.ToLower(countryName),
 		MinAge:         minAge,
 		MaxAge:         maxAge,
 		MinGenderProb:  minGenderProb,
@@ -276,6 +286,7 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 		Genders:        genders,
 		AgeGroup:       strings.ToLower(ageGroup),
 		CountryID:      strings.ToLower(countryID),
+		CountryName:    strings.ToLower(countryName),
 		MinAge:         minAge,
 		MaxAge:         maxAge,
 		MinGenderProb:  minGenderProb,
@@ -466,6 +477,15 @@ func (h *Handler) ExportProfiles(w http.ResponseWriter, r *http.Request) {
 	limit := params.Get("limit")
 	gender := params.Get("gender")
 	countryID := params.Get("country_id")
+	countryName := params.Get("country_name")
+	country := params.Get("country")
+	if country != "" {
+		if len(country) == 2 {
+			countryID = country
+		} else {
+			countryName = country
+		}
+	}
 	ageGroup := params.Get("age_group")
 	minAgeStr := params.Get("min_age")
 	maxAgeStr := params.Get("max_age")
@@ -563,6 +583,7 @@ func (h *Handler) ExportProfiles(w http.ResponseWriter, r *http.Request) {
 		Genders:        genders,
 		AgeGroup:       strings.ToLower(ageGroup),
 		CountryID:      strings.ToLower(countryID),
+		CountryName:    strings.ToLower(countryName),
 		MinAge:         minAge,
 		MaxAge:         maxAge,
 		MinGenderProb:  minGenderProb,
