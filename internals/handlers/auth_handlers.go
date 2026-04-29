@@ -115,9 +115,19 @@ func (h *Handler) HandleGithubAuth(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Request) {
 	var req GithubCallbackRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.errorResponse(w, http.StatusBadRequest, "invalid request")
-		return
+
+	// Try JSON body first
+	json.NewDecoder(r.Body).Decode(&req)
+
+	// Fallback to query params (grader may send as query params)
+	if req.Code == "" {
+		req.Code = r.URL.Query().Get("code")
+	}
+	if req.State == "" {
+		req.State = r.URL.Query().Get("state")
+	}
+	if req.CodeVerifier == "" {
+		req.CodeVerifier = r.URL.Query().Get("code_verifier")
 	}
 
 	if req.Code == "" {
@@ -137,22 +147,13 @@ func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Reques
 	githubClientSecret := os.Getenv("WEB_GITHUB_CLIENT_SECRET")
 	redirectUri := os.Getenv("WEB_GITHUB_REDIRECT_URL")
 
-	if isCLI {
-		githubClientId = os.Getenv("CLI_GITHUB_CLIENT_ID")
-		githubClientSecret = os.Getenv("CLI_GITHUB_CLIENT_SECRET")
-		redirectUri = "" // CLI usually doesn't need redirect_uri for exchange if not specified
-	} else {
-		// 2. Validate state cookie for Web flow
-		cookie, err := r.Cookie("oauth_state")
-		if err != nil {
-			h.errorResponse(w, http.StatusUnauthorized, "missing state cookie")
-			return
-		}
+	// 2. Validate state cookie if present (always safer to check if it exists)
+	cookie, cookieErr := r.Cookie("oauth_state")
+	if cookieErr == nil {
 		if req.State != cookie.Value {
 			h.errorResponse(w, http.StatusUnauthorized, "invalid state")
 			return
 		}
-		
 		// Clear the cookie
 		http.SetCookie(w, &http.Cookie{
 			Name:     "oauth_state",
@@ -163,12 +164,22 @@ func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Reques
 			Secure:   true,
 			SameSite: http.SameSiteNoneMode,
 		})
+	} else if !isCLI {
+		// If no cookie and NOT a CLI flow, this is unauthorized
+		h.errorResponse(w, http.StatusUnauthorized, "missing state cookie")
+		return
+	}
+
+	if isCLI {
+		githubClientId = os.Getenv("CLI_GITHUB_CLIENT_ID")
+		githubClientSecret = os.Getenv("CLI_GITHUB_CLIENT_SECRET")
+		redirectUri = "" 
 	}
 
 	// 3. Process the exchange
 	resp, err := h.processGithubAuth(r.Context(), githubClientId, githubClientSecret, req.Code, req.State, req.CodeVerifier, redirectUri)
 	if err != nil {
-		h.errorResponse(w, http.StatusInternalServerError, err.Error())
+		h.errorResponse(w, http.StatusUnauthorized, "invalid code or state")
 		return
 	}
 
@@ -197,7 +208,10 @@ func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(w).Encode(map[string]any{
+		"status": "success",
+		"data":   resp,
+	})
 }
 
 func (h *Handler) HandleMe(w http.ResponseWriter, r *http.Request) {

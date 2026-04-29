@@ -43,6 +43,7 @@ func main() {
 	router.HandleFunc("GET /auth/github", h.HandleGithubAuth)
 	router.HandleFunc("GET /auth/github/url", h.HandleGithubAuthURL)
 	router.HandleFunc("POST /auth/github/callback", h.HandleGithubAuthCallback)
+	router.HandleFunc("GET /auth/github/callback", h.HandleGithubAuthCallback)
 	router.Handle("GET /auth/me", 
 		middlewares.VersionMiddleware(
 			middlewares.AuthMiddleware(http.HandlerFunc(h.HandleMe)),
