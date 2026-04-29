@@ -74,7 +74,7 @@ func RateLimitMiddleware(next http.Handler) http.Handler {
 			key = claims.UserID
 		}
 
-		if strings.HasPrefix(path, "/auth/") {
+		if strings.HasPrefix(path, "/auth") {
 			if !authLimiter.isAllowed(key, 10, time.Minute) {
 				utils.JSONResponse(w, http.StatusTooManyRequests, map[string]string{
 					"status":  "error",
@@ -82,7 +82,7 @@ func RateLimitMiddleware(next http.Handler) http.Handler {
 				})
 				return
 			}
-		} else {
+		} else if strings.HasPrefix(path, "/api") {
 			if !apiLimiter.isAllowed(key, 60, time.Minute) {
 				utils.JSONResponse(w, http.StatusTooManyRequests, map[string]string{
 					"status":  "error",
