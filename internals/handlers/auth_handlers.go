@@ -52,8 +52,8 @@ func (h *Handler) HandleGithubAuthURL(w http.ResponseWriter, r *http.Request) {
 		Value:    state,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false, 
-		SameSite: http.SameSiteLaxMode,
+		Secure:   true, 
+		SameSite: http.SameSiteNoneMode,
 		MaxAge:   300,
 	})
 
@@ -154,14 +154,13 @@ func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Set HTTP-only cookies for web tokens
 	http.SetCookie(w, &http.Cookie{
 		Name:     "access_token",
 		Value:    resp.AccessToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false, // Set to true in production
-		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
 		MaxAge:   180, // 3 minutes
 	})
 
@@ -170,8 +169,8 @@ func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Reques
 		Value:    resp.RefreshToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false, // Set to true in production
-		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
 		MaxAge:   300, // 5 minutes
 	})
 
@@ -278,8 +277,8 @@ func (h *Handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		Value:    newAT,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
 		MaxAge:   180,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -287,8 +286,8 @@ func (h *Handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		Value:    newRT,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
 		MaxAge:   300,
 	})
 
