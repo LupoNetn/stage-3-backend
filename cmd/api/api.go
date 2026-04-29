@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 	"github.com/luponetn/hng-stage-1/utils"
+	"github.com/luponetn/hng-stage-1/middlewares"
 )
 
 func CreateRouter() *http.ServeMux {
@@ -20,7 +21,10 @@ func CreateRouter() *http.ServeMux {
 }
 
 func StartServer(router *http.ServeMux, port string) error {
-	handler := CORSMiddleware(router)
+	// Apply middlewares in order
+	handler := middlewares.LoggerMiddleware(router)
+	handler = middlewares.RateLimitMiddleware(handler)
+	handler = CORSMiddleware(handler)
 	server := &http.Server{
 		Addr:         ":" + port,
 		Handler:      handler,
