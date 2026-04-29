@@ -54,7 +54,7 @@ func (h *Handler) HandleGithubAuthURL(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteNoneMode,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   300,
 	})
 
@@ -93,7 +93,7 @@ func (h *Handler) HandleGithubAuth(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteNoneMode,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   300,
 	})
 
@@ -158,12 +158,12 @@ func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Reques
 		// Clear the cookie
 		http.SetCookie(w, &http.Cookie{
 			Name:     "oauth_state",
-			Value:    "",
+			Value:    "deleted",
 			Path:     "/",
 			MaxAge:   -1,
 			HttpOnly: true,
 			Secure:   true,
-			SameSite: http.SameSiteNoneMode,
+			SameSite: http.SameSiteLaxMode,
 		})
 	} else if !isCLI {
 		// If no cookie and NOT a CLI flow, this is unauthorized
@@ -210,8 +210,11 @@ func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]any{
-		"status": "success",
-		"data":   resp,
+		"status":        "success",
+		"access_token":  resp.AccessToken,
+		"refresh_token": resp.RefreshToken,
+		"username":      resp.Username,
+		"data":          resp,
 	})
 }
 
@@ -310,7 +313,7 @@ func (h *Handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteNoneMode,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   180,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -319,7 +322,7 @@ func (h *Handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteNoneMode,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   300,
 	})
 
@@ -334,7 +337,12 @@ func (h *Handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		h.errorResponse(w, http.StatusMethodNotAllowed, "method not allowed")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":  "error",
+			"message": "method not allowed",
+		})
 		return
 	}
 	var rt string
