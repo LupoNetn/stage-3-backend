@@ -91,8 +91,8 @@ func (h *Handler) HandleGithubAuth(w http.ResponseWriter, r *http.Request) {
 		Value:    state,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
 		MaxAge:   300,
 	})
 
@@ -116,71 +116,88 @@ func (h *Handler) HandleGithubAuth(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Request) {
 	var req GithubCallbackRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fmt.Println("Error decoding request:", err)
 		h.errorResponse(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 
-	// Get state from cookie
-	cookie, err := r.Cookie("oauth_state")
-	if err != nil {
-		fmt.Println("State cookie not found")
-		h.errorResponse(w, http.StatusUnauthorized, "missing state cookie")
+	if req.Code == "" {
+		h.errorResponse(w, http.StatusBadRequest, "missing code")
 		return
 	}
 
-	if req.State != cookie.Value {
-		fmt.Println("Invalid state")
-		h.errorResponse(w, http.StatusUnauthorized, "invalid state")
+	if req.State == "" {
+		h.errorResponse(w, http.StatusBadRequest, "missing state")
 		return
 	}
 
-	// Clear the cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:   "oauth_state",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
-	})
-
+	// 1. Determine if this is a CLI flow (PKCE) or Web flow
+	isCLI := req.CodeVerifier != ""
+	
 	githubClientId := os.Getenv("WEB_GITHUB_CLIENT_ID")
 	githubClientSecret := os.Getenv("WEB_GITHUB_CLIENT_SECRET")
 	redirectUri := os.Getenv("WEB_GITHUB_REDIRECT_URL")
 
-	resp, err := h.processGithubAuth(r.Context(), githubClientId, githubClientSecret, req.Code, req.State, "", redirectUri)
+	if isCLI {
+		githubClientId = os.Getenv("CLI_GITHUB_CLIENT_ID")
+		githubClientSecret = os.Getenv("CLI_GITHUB_CLIENT_SECRET")
+		redirectUri = "" // CLI usually doesn't need redirect_uri for exchange if not specified
+	} else {
+		// 2. Validate state cookie for Web flow
+		cookie, err := r.Cookie("oauth_state")
+		if err != nil {
+			h.errorResponse(w, http.StatusUnauthorized, "missing state cookie")
+			return
+		}
+		if req.State != cookie.Value {
+			h.errorResponse(w, http.StatusUnauthorized, "invalid state")
+			return
+		}
+		
+		// Clear the cookie
+		http.SetCookie(w, &http.Cookie{
+			Name:     "oauth_state",
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteNoneMode,
+		})
+	}
+
+	// 3. Process the exchange
+	resp, err := h.processGithubAuth(r.Context(), githubClientId, githubClientSecret, req.Code, req.State, req.CodeVerifier, redirectUri)
 	if err != nil {
-		fmt.Println("Error processing github auth callback:", err)
 		h.errorResponse(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "access_token",
-		Value:    resp.AccessToken,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteNoneMode,
-		MaxAge:   180, // 3 minutes
-	})
+	// 4. For Web flow, set cookies. For CLI, just return JSON.
+	if !isCLI {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "access_token",
+			Value:    resp.AccessToken,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteNoneMode,
+			MaxAge:   180, // 3 minutes
+		})
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
-		Value:    resp.RefreshToken,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteNoneMode,
-		MaxAge:   300, // 5 minutes
-	})
+		http.SetCookie(w, &http.Cookie{
+			Name:     "refresh_token",
+			Value:    resp.RefreshToken,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteNoneMode,
+			MaxAge:   300, // 5 minutes
+		})
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]any{
-		"status":   "success",
-		"message":  "logged in successfully",
-		"username": resp.Username,
-	})
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (h *Handler) HandleMe(w http.ResponseWriter, r *http.Request) {
@@ -301,6 +318,10 @@ func (h *Handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.errorResponse(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	var rt string
 
 	// 1. Check body for CLI clients
@@ -363,6 +384,10 @@ func (h *Handler) processGithubAuth(ctx context.Context, clientID, clientSecret,
 	tokenMap, ok := data.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("invalid token response from github")
+	}
+
+	if githubErr, exists := tokenMap["error"].(string); exists {
+		return nil, fmt.Errorf("github oauth error: %s (%s)", githubErr, tokenMap["error_description"])
 	}
 
 	accessToken, ok := tokenMap["access_token"].(string)

@@ -52,17 +52,29 @@ func RateLimitMiddleware(next http.Handler) http.Handler {
 		path := r.URL.Path
 		
 		// Determine key (User ID if authenticated, else IP)
-		key := r.RemoteAddr
+		key := r.Header.Get("X-Forwarded-For")
+		if key == "" {
+			key = r.RemoteAddr
+			if idx := strings.LastIndex(key, ":"); idx != -1 {
+				key = key[:idx]
+			}
+		} else {
+			// X-Forwarded-For can be a comma-separated list; take the first one
+			if idx := strings.Index(key, ","); idx != -1 {
+				key = key[:idx]
+			}
+		}
+
 		claims, ok := GetUserClaims(r.Context())
 		if ok {
 			key = claims.UserID
 		}
 
 		if strings.HasPrefix(path, "/auth/") {
-			if !authLimiter.isAllowed(key, 10, time.Minute) {
+			if !authLimiter.isAllowed(key, 50, time.Minute) {
 				utils.JSONResponse(w, http.StatusTooManyRequests, map[string]string{
 					"status":  "error",
-					"message": "Too many requests. Auth limit is 10 per minute.",
+					"message": "Too many requests. Please try again later.",
 				})
 				return
 			}
@@ -70,7 +82,7 @@ func RateLimitMiddleware(next http.Handler) http.Handler {
 			if !apiLimiter.isAllowed(key, 60, time.Minute) {
 				utils.JSONResponse(w, http.StatusTooManyRequests, map[string]string{
 					"status":  "error",
-					"message": "Too many requests. API limit is 60 per minute.",
+					"message": "Too many requests. Please try again later.",
 				})
 				return
 			}

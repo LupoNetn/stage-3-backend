@@ -28,8 +28,9 @@ type GithubCLIAuth struct {
 }
 
 type GithubCallbackRequest struct {
-	Code  string `json:"code"`
-	State string `json:"state"`
+	Code         string `json:"code"`
+	State        string `json:"state"`
+	CodeVerifier string `json:"code_verifier"`
 }
 
 type GithubAuthResponse struct {

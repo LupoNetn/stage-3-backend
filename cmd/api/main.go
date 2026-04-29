@@ -48,6 +48,12 @@ func main() {
 			middlewares.AuthMiddleware(http.HandlerFunc(h.HandleMe)),
 		),
 	)
+	// Alias for tester
+	router.Handle("GET /api/users/me", 
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(http.HandlerFunc(h.HandleMe)),
+		),
+	)
 	router.HandleFunc("POST /auth/refresh", h.HandleRefresh)
 	router.HandleFunc("POST /auth/logout", h.HandleLogout)
 
