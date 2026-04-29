@@ -1,6 +1,8 @@
 # Insighta Labs+ | Backend API
 Secure Profile Intelligence System
 
+**Live API**: [https://stage-3-backend-azure.vercel.app](https://stage-3-backend-azure.vercel.app)
+
 ## 🏗️ System Architecture
 The backend is built using a **Clean Architecture** pattern in Go.
 - **cmd/api**: Entry point and route registration.
@@ -17,6 +19,11 @@ The backend is built using a **Clean Architecture** pattern in Go.
    - Refresh Tokens: 5 mins (Single-use rotation)
 
 ## 🛡️ Role Enforcement
-Roles are enforced via the `RoleMiddleware`. 
-- `analyst`: Read-only access to profiles.
+Roles are enforced via the `RoleMiddleware` and `Authorize` higher-order functions.
+- `analyst`: Read-only access to `/api/profiles`.
 - `admin`: Full CRUD access including profile creation and deletion.
+
+## 🔎 Natural Language Search Approach
+The system uses a **Rule-Based Tokenizer** combined with a **Vectorized SQL Query Builder**.
+- **Tokenization**: Filters noise and extracts key entities (Genders, Countries, Age Groups).
+- **Interpretable Querying**: Translates natural language into structured SQL `WHERE` clauses for high-precision filtering across thousands of profiles.
