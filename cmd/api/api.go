@@ -4,21 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-	"github.com/luponetn/hng-stage-1/utils"
 	"github.com/luponetn/hng-stage-1/middlewares"
 )
 
-func CreateRouter() *http.ServeMux {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		utils.JSONResponse(w, http.StatusOK, map[string]string{
-			"status": "ok",
-		})
-	})
-
-	return mux
-}
 
 func StartServer(router *http.ServeMux, port string) error {
 	// Apply middlewares in order

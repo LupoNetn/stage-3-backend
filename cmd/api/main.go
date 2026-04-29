@@ -8,6 +8,7 @@ import (
 	"github.com/luponetn/hng-stage-1/internals/db"
 	"github.com/luponetn/hng-stage-1/internals/handlers"
 	"github.com/luponetn/hng-stage-1/middlewares"
+	"github.com/luponetn/hng-stage-1/utils"
 )
 
 func main() {
@@ -26,7 +27,14 @@ func main() {
 
 	// 4. Initialize Handlers
 	queries := db.New(pool)
-	h := handlers.NewHandler(queries)
+	h := handlers.NewHandler(queries)		
+
+	//health routes
+	router.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		utils.JSONResponse(w, http.StatusOK, map[string]string{
+			"status": "ok",
+		})
+	})
 
 	// ==========================================
 	// AUTHENTICATION ROUTES
