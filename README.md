@@ -1,44 +1,22 @@
-# Insighta Labs+ Backend
+# Insighta Labs+ | Backend API
+Secure Profile Intelligence System
 
-The secure biometric intelligence core of the Insighta platform.
+## 🏗️ System Architecture
+The backend is built using a **Clean Architecture** pattern in Go.
+- **cmd/api**: Entry point and route registration.
+- **internals/handlers**: REST controllers for Auth and Profile logic.
+- **internals/db**: Persistence layer using PostgreSQL with SQLC.
+- **middlewares**: Logging, Rate Limiting, and Role-Based Access Control (RBAC).
 
-## System Architecture
-This backend is built with Go using a modular architecture:
-- **Handlers**: Process incoming HTTP requests and manage logic.
-- **Middlewares**: Enforce security, rate limiting, and versioning.
-- **Database**: PostgreSQL with sqlc for type-safe queries.
-- **Security**: JWT-based session management with GitHub OAuth.
+## 🔐 Authentication Flow (OAuth + PKCE)
+1. **Initiate**: Client generates a `code_challenge` and redirects to GitHub.
+2. **Callback**: GitHub returns a `code` which is sent to `/auth/github/callback`.
+3. **Validation**: Backend validates PKCE `code_verifier`, exchanges for GitHub token, and issues internal JWTs.
+4. **Lifecycle**: 
+   - Access Tokens: 3 mins
+   - Refresh Tokens: 5 mins (Single-use rotation)
 
-## Authentication Flow
-
-### CLI Flow (PKCE)
-1. User initiates `insighta login`.
-2. CLI generates a PKCE `code_verifier` and `code_challenge`.
-3. CLI opens a local server and directs the browser to `/auth/github/cli`.
-4. User authenticates with GitHub.
-5. GitHub redirects to the CLI local server.
-6. CLI sends the `code` and `code_verifier` to the Backend.
-7. Backend validates everything and issues tokens.
-
-### Web Flow (HTTP-Only)
-1. User clicks "Login" on the portal.
-2. Web Portal fetches a secure OAuth URL from `/auth/github/url`.
-3. User authenticates with GitHub.
-4. GitHub redirects to `/auth/github/callback`.
-5. Backend verifies the session and sets `access_token` and `refresh_token` as **HTTP-only, Secure, SameSite=Lax** cookies.
-
-## Role Enforcement
-- **Admin**: Full access to create (`POST /api/profiles`), delete (`DELETE /api/profiles/{id}`), and query profiles.
-- **Analyst**: Read-only access to list, get, and search profiles.
-
-## Rate Limiting
-- **Auth Endpoints**: 10 requests per minute per User/IP.
-- **API Endpoints**: 60 requests per minute per Authenticated User.
-
-## API Versioning
-All profile endpoints require the `X-API-Version: 1` header.
-
-## Setup
-1. Copy `.env.example` to `.env`.
-2. Configure your GitHub OAuth Credentials.
-3. Run with `go run ./cmd/api`.
+## 🛡️ Role Enforcement
+Roles are enforced via the `RoleMiddleware`. 
+- `analyst`: Read-only access to profiles.
+- `admin`: Full CRUD access including profile creation and deletion.

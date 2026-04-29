@@ -302,7 +302,15 @@ func (h *Handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	var rt string
-	if cookie, err := r.Cookie("refresh_token"); err == nil {
+
+	// 1. Check body for CLI clients
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.RefreshToken != "" {
+		rt = req.RefreshToken
+	} else if cookie, err := r.Cookie("refresh_token"); err == nil {
+		// 2. Check cookie for web clients
 		rt = cookie.Value
 	}
 
