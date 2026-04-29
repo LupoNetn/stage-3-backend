@@ -56,7 +56,7 @@ func main() {
 		),
 	)
 	router.HandleFunc("POST /auth/refresh", h.HandleRefresh)
-	router.HandleFunc("POST /auth/logout", h.HandleLogout)
+	router.HandleFunc("/auth/logout", h.HandleLogout)
 
 	
 	
