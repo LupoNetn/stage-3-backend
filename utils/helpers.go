@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -77,4 +78,17 @@ func AppendUnique(arr []string, val string) []string {
 		}
 	}
 	return append(arr, val)
+}
+
+// ClearCookie removes a cookie by setting it to the past
+func ClearCookie(w http.ResponseWriter, name string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
 }

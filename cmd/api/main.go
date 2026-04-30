@@ -39,7 +39,7 @@ func main() {
 	// ==========================================
 	// AUTHENTICATION ROUTES
 	// ==========================================
-	router.HandleFunc("POST /auth/github/cli", h.HandleGithubCLIAuth)
+	router.HandleFunc("POST /auth/github/cli", h.HandleGithubAuthCallback)
 	router.HandleFunc("GET /auth/github", h.HandleGithubAuth)
 	router.HandleFunc("GET /auth/github/url", h.HandleGithubAuthURL)
 	router.HandleFunc("POST /auth/github/callback", h.HandleGithubAuthCallback)

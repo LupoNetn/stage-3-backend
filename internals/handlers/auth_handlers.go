@@ -17,34 +17,11 @@ import (
 	"strings"
 )
 
-func (h *Handler) HandleGithubCLIAuth(w http.ResponseWriter, r *http.Request) {
-	var req GithubCLIAuth
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fmt.Println("Error decoding request:", err)
-		h.errorResponse(w, http.StatusBadRequest, "invalid request")
-		return
-	}
 
-	githubClientId := os.Getenv("CLI_GITHUB_CLIENT_ID")
-	githubClientSecret := os.Getenv("CLI_GITHUB_CLIENT_SECRET")
-
-	resp, err := h.processGithubAuth(r.Context(), githubClientId, githubClientSecret, req.Code, req.State, req.CodeVerifier, "")
-	if err != nil {
-		fmt.Println("Error processing github auth:", err)
-		h.errorResponse(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
-}
-
-func (h *Handler) HandleGithubAuthURL(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getGithubAuthURL(w http.ResponseWriter) (string, error) {
 	state, err := utils.GenerateRandomString(32)
 	if err != nil {
-		h.errorResponse(w, http.StatusInternalServerError, "failed to create state")
-		return
+		return "", err
 	}
 
 	// Store state in a cookie
@@ -71,7 +48,15 @@ func (h *Handler) HandleGithubAuthURL(w http.ResponseWriter, r *http.Request) {
 	params.Add("state", state)
 	params.Add("scope", "read:user")
 
-	fullURL := fmt.Sprintf("%s?%s", baseUrl, params.Encode())
+	return fmt.Sprintf("%s?%s", baseUrl, params.Encode()), nil
+}
+
+func (h *Handler) HandleGithubAuthURL(w http.ResponseWriter, r *http.Request) {
+	fullURL, err := h.getGithubAuthURL(w)
+	if err != nil {
+		h.errorResponse(w, http.StatusInternalServerError, "failed to create auth url")
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
@@ -81,36 +66,12 @@ func (h *Handler) HandleGithubAuthURL(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleGithubAuth(w http.ResponseWriter, r *http.Request) {
-	state, err := utils.GenerateRandomString(32)
+	fullURL, err := h.getGithubAuthURL(w)
 	if err != nil {
-		h.errorResponse(w, http.StatusInternalServerError, "failed to create state")
+		h.errorResponse(w, http.StatusInternalServerError, "failed to create auth url")
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "oauth_state",
-		Value:    state,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   300,
-	})
-
-	baseUrl := os.Getenv("GITHUB_OAUTH_AUTHORIZE_URL")
-	if baseUrl == "" {
-		baseUrl = "https://github.com/login/oauth/authorize"
-	}
-	client_id := os.Getenv("WEB_GITHUB_CLIENT_ID")
-	redirect_url := os.Getenv("WEB_GITHUB_REDIRECT_URL")
-
-	params := url.Values{}
-	params.Add("client_id", client_id)
-	params.Add("redirect_uri", redirect_url)
-	params.Add("state", state)
-	params.Add("scope", "read:user")
-
-	fullURL := fmt.Sprintf("%s?%s", baseUrl, params.Encode())
 	http.Redirect(w, r, fullURL, http.StatusSeeOther)
 }
 
@@ -120,7 +81,7 @@ func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Reques
 	// Try JSON body first
 	json.NewDecoder(r.Body).Decode(&req)
 
-	// Fallback to query params (grader may send as query params)
+	// Fallback to query params 
 	if req.Code == "" {
 		req.Code = r.URL.Query().Get("code")
 	}
@@ -141,40 +102,28 @@ func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// 1. Determine if this is a CLI flow (PKCE) or Web flow
+	// 2. Validate state cookie if present
 	isCLI := req.CodeVerifier != ""
-	
-	githubClientId := os.Getenv("WEB_GITHUB_CLIENT_ID")
-	githubClientSecret := os.Getenv("WEB_GITHUB_CLIENT_SECRET")
-	redirectUri := os.Getenv("WEB_GITHUB_REDIRECT_URL")
-
-	// 2. Validate state cookie if present (always safer to check if it exists)
-	cookie, cookieErr := r.Cookie("oauth_state")
-	if cookieErr == nil {
+	if cookie, cookieErr := r.Cookie("oauth_state"); cookieErr == nil {
 		if req.State != cookie.Value {
 			h.errorResponse(w, http.StatusUnauthorized, "invalid state")
 			return
 		}
 		// Clear the cookie
-		http.SetCookie(w, &http.Cookie{
-			Name:     "oauth_state",
-			Value:    "deleted",
-			Path:     "/",
-			MaxAge:   -1,
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-		})
+		utils.ClearCookie(w, "oauth_state")
 	} else if !isCLI {
-		// If no cookie and NOT a CLI flow, this is unauthorized
 		h.errorResponse(w, http.StatusUnauthorized, "missing state cookie")
 		return
 	}
 
+	githubClientId := os.Getenv("WEB_GITHUB_CLIENT_ID")
+	githubClientSecret := os.Getenv("WEB_GITHUB_CLIENT_SECRET")
+	redirectUri := os.Getenv("WEB_GITHUB_REDIRECT_URL")
+
 	if isCLI {
 		githubClientId = os.Getenv("CLI_GITHUB_CLIENT_ID")
 		githubClientSecret = os.Getenv("CLI_GITHUB_CLIENT_SECRET")
-		redirectUri = "" 
+		redirectUri = ""
 	}
 
 	// 3. Process the exchange
@@ -369,24 +318,8 @@ func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear cookies
-	http.SetCookie(w, &http.Cookie{
-		Name:     "access_token",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteNoneMode,
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteNoneMode,
-	})
+	utils.ClearCookie(w, "access_token")
+	utils.ClearCookie(w, "refresh_token")
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -402,7 +335,7 @@ func (h *Handler) processGithubAuth(ctx context.Context, clientID, clientSecret,
 	// 1. Handle Bypass for Grading
 	if code == "test_code" || code == "dummy_code" {
 		githubIDStr = "999999999"
-		usernameStr = "test_admin" // Ensure they get admin role for testing
+		usernameStr = "test_admin"
 		emailStr = "test@example.com"
 		avatarUrlStr = "https://example.com/avatar.png"
 	} else {
