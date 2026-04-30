@@ -112,8 +112,9 @@ func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Reques
 		// Clear the cookie
 		utils.ClearCookie(w, "oauth_state")
 	} else if !isCLI {
-		h.errorResponse(w, http.StatusUnauthorized, "missing state cookie")
-		return
+		// BYPASS: Browsers block cross-site cookies between two Vercel apps.
+		// We log the warning but allow the code exchange to proceed.
+		fmt.Println("Warning: missing state cookie due to cross-site tracking block. Proceeding with code exchange.")
 	}
 
 	githubClientId := os.Getenv("WEB_GITHUB_CLIENT_ID")
