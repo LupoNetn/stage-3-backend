@@ -130,6 +130,7 @@ func (h *Handler) HandleGithubAuthCallback(w http.ResponseWriter, r *http.Reques
 	// 3. Process the exchange
 	resp, err := h.processGithubAuth(r.Context(), githubClientId, githubClientSecret, req.Code, req.State, req.CodeVerifier, redirectUri)
 	if err != nil {
+		fmt.Printf("Github auth error: %v\n", err)
 		h.errorResponse(w, http.StatusUnauthorized, "invalid code or state")
 		return
 	}
