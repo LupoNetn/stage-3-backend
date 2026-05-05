@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	Port  string
-	DBURL string
+	Port     string
+	DBURL    string
+	RedisURL string
 }
 
 func LoadConfig() *Config {
@@ -20,8 +21,9 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		Port:  getEnv("PORT", "8080"),
-		DBURL: getEnv("DATABASE_URL", ""),
+		Port:     getEnv("PORT", "8080"),
+		DBURL:    getEnv("DATABASE_URL", ""),
+		RedisURL: getEnv("UPSTASH_REDIS_REST_URL", getEnv("REDIS_URL", "")), // Supports Upstash out of the box
 	}
 }
 

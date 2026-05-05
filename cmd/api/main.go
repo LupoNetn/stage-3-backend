@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/luponetn/hng-stage-1/internals/cache"
 	"github.com/luponetn/hng-stage-1/internals/config"
 	"github.com/luponetn/hng-stage-1/internals/db"
 	"github.com/luponetn/hng-stage-1/internals/handlers"
@@ -25,9 +26,16 @@ func main() {
 	}
 	defer pool.Close()
 
+	// 3.5 Connect to Redis
+	if cfg.RedisURL != "" {
+		if err := cache.InitRedis(cfg.RedisURL); err != nil {
+			log.Fatalf("could not connect to redis: %v", err)
+		}
+	}
+
 	// 4. Initialize Handlers
 	queries := db.New(pool)
-	h := handlers.NewHandler(queries)		
+	h := handlers.NewHandler(queries, pool)		
 
 	//health routes
 	router.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +73,14 @@ func main() {
 		middlewares.VersionMiddleware(
 			middlewares.AuthMiddleware(
 				middlewares.AuthorizeAdmin(http.HandlerFunc(h.CreateProfile)),
+			),
+		),
+	)
+
+	router.Handle("POST /api/profiles/upload", 
+		middlewares.VersionMiddleware(
+			middlewares.AuthMiddleware(
+				middlewares.AuthorizeAdmin(http.HandlerFunc(h.ImportProfilesCSV)),
 			),
 		),
 	)

@@ -18,8 +18,8 @@ func ConnectDB(dbURL string) (*pgxpool.Pool, error) {
 	config.MaxConnIdleTime = 5 * time.Minute
 	config.MaxConnLifetime = 30 * time.Minute
 	config.HealthCheckPeriod = 1 * time.Minute
-	config.MaxConns = 10
-	config.MinConns = 2
+	config.MaxConns = 100 // Increased from 10 to handle higher concurrency
+	config.MinConns = 10  // Increased from 2
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

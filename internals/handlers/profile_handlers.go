@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/luponetn/hng-stage-1/internals/cache"
 	"github.com/luponetn/hng-stage-1/internals/db"
 	httprequest "github.com/luponetn/hng-stage-1/internals/httpRequest"
 	"github.com/luponetn/hng-stage-1/utils"
@@ -276,12 +277,6 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 		MinCountryProb: minCountryProb,
 	}
 
-	total, err := h.queries.CountProfilesAdvanced(r.Context(), countParams)
-	if err != nil {
-		h.errorResponse(w, http.StatusInternalServerError, "Failed to count profiles")
-		return
-	}
-
 	listParams := db.ListProfilesAdvancedParams{
 		Genders:        genders,
 		AgeGroup:       strings.ToLower(ageGroup),
@@ -295,6 +290,35 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 		SortDirection:  sortDir,
 		LimitVal:       limitVal,
 		OffsetVal:      offsetVal,
+	}
+
+	// --- CACHE FIRST STRATEGY ---
+	// We use listParams as the canonical object for our cache key.
+	// This naturally fulfills the Query Normalization requirement!
+	cacheKey, _ := cache.GenerateQueryKey("profiles_query", listParams)
+	
+	type CachedResult struct {
+		Total int32            `json:"total"`
+		Data  []map[string]any `json:"data"`
+	}
+
+	if cacheKey != "" && cache.Client != nil {
+		cachedBytes, err := cache.Client.Get(r.Context(), cacheKey).Result()
+		if err == nil {
+			// Cache HIT!
+			var cached CachedResult
+			if json.Unmarshal([]byte(cachedBytes), &cached) == nil {
+				utils.PaginatedResponse(w, http.StatusOK, pageVal, limitVal, cached.Total, "/api/profiles", r.URL.Query(), cached.Data)
+				return
+			}
+		}
+	}
+	// --- END CACHE CHECK ---
+
+	total, err := h.queries.CountProfilesAdvanced(r.Context(), countParams)
+	if err != nil {
+		h.errorResponse(w, http.StatusInternalServerError, "Failed to count profiles")
+		return
 	}
 
 	profiles, err := h.queries.ListProfilesAdvanced(r.Context(), listParams)
@@ -318,6 +342,16 @@ func (h *Handler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 			"created_at":          p.CreatedAt.Time.UTC().Format(time.RFC3339),
 		})
 	}
+
+	// --- WRITE TO CACHE ---
+	if cacheKey != "" && cache.Client != nil {
+		res := CachedResult{Total: int32(total), Data: data}
+		if bytes, err := json.Marshal(res); err == nil {
+			// Save in Redis for 5 minutes as required by design doc
+			cache.Client.Set(r.Context(), cacheKey, bytes, 5*time.Minute)
+		}
+	}
+	// --- END WRITE TO CACHE ---
 
 	utils.PaginatedResponse(w, http.StatusOK, pageVal, limitVal, int32(total), "/api/profiles", r.URL.Query(), data)
 }
@@ -388,12 +422,6 @@ func (h *Handler) SearchProfiles(w http.ResponseWriter, r *http.Request) {
 		ExactAge:    int32(exactAge),
 	}
 
-	total, err := h.queries.CountProfilesAdvanced(r.Context(), countParams)
-	if err != nil {
-		h.errorResponse(w, http.StatusInternalServerError, "Failed to count profiles")
-		return
-	}
-
 	listParams := db.ListProfilesAdvancedParams{
 		Genders:       genders,
 		AgeGroup:      ageGroup,
@@ -406,6 +434,34 @@ func (h *Handler) SearchProfiles(w http.ResponseWriter, r *http.Request) {
 		SortDirection: "desc",
 		LimitVal:      limitVal,
 		OffsetVal:     offsetVal,
+	}
+
+	// --- CACHE FIRST STRATEGY ---
+	// We use the normalized listParams as the cache key base.
+	// This ensures that "Nigerian females" and "Women in Nigeria" hit the EXACT SAME cache key!
+	cacheKey, _ := cache.GenerateQueryKey("profiles_search", listParams)
+	
+	type CachedResult struct {
+		Total int32            `json:"total"`
+		Data  []map[string]any `json:"data"`
+	}
+
+	if cacheKey != "" && cache.Client != nil {
+		cachedBytes, err := cache.Client.Get(r.Context(), cacheKey).Result()
+		if err == nil {
+			var cached CachedResult
+			if json.Unmarshal([]byte(cachedBytes), &cached) == nil {
+				utils.PaginatedResponse(w, http.StatusOK, pageVal, limitVal, cached.Total, "/api/profiles/search", r.URL.Query(), cached.Data)
+				return
+			}
+		}
+	}
+	// --- END CACHE CHECK ---
+
+	total, err := h.queries.CountProfilesAdvanced(r.Context(), countParams)
+	if err != nil {
+		h.errorResponse(w, http.StatusInternalServerError, "Failed to count profiles")
+		return
 	}
 
 	profiles, err := h.queries.ListProfilesAdvanced(r.Context(), listParams)
@@ -429,6 +485,16 @@ func (h *Handler) SearchProfiles(w http.ResponseWriter, r *http.Request) {
 			"created_at":          p.CreatedAt.Time.UTC().Format(time.RFC3339),
 		})
 	}
+
+	// --- WRITE TO CACHE ---
+	if cacheKey != "" && cache.Client != nil {
+		res := CachedResult{Total: int32(total), Data: data}
+		if bytes, err := json.Marshal(res); err == nil {
+			// Save in Redis for 5 minutes as required by design doc
+			cache.Client.Set(r.Context(), cacheKey, bytes, 5*time.Minute)
+		}
+	}
+	// --- END WRITE TO CACHE ---
 
 	utils.PaginatedResponse(w, http.StatusOK, pageVal, limitVal, int32(total), "/api/profiles/search", r.URL.Query(), data)
 }
